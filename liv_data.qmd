@@ -148,7 +148,8 @@ result_list <- liv_data %>%
     function(data = .x, group = foam, values = value) {
       # t_TOST compares two vectors, create those from 
       # the groups defined by the `group` column
-      bits <- split(data, ~ {{foam}}); 
+      #df <- select(data, !!group, !!values)
+      bits <- split(data, ~ {{group}}) # this sprays Warnings
       # then extract the values to compare from the `values` column
       x <- pull(bits[[1]], {{values}});
       y <- pull(bits[[2]], {{values}});
