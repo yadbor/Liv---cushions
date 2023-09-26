@@ -1,6 +1,8 @@
 ---
 title: "liv_data"
-format: html
+format: 
+  html:
+    self-contained: true
 params:
   hide_answer: true
 ---
