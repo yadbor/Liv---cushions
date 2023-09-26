@@ -1,14 +1,39 @@
-# Run a Two-one-sided-test on Liv's data
+---
+title: "liv_data"
+format: html
+---
 
+## Exploratory analysis of Liv's data
+
+This report contains R code and output intermingled using Quarto, 
+based on the LIterate Programmign paradigm of Knuth.
+
+The input to this code is a simplified version of Liv's .xlsx spreadsheets 
+with extraneous material removed to make them easier to parse.
+
+Load the necessary libraries and calculate the approximate density of each cushion.
+Note that this is a guess as there is VF and HR in each cushion, 
+but only one weight of the combined cushion.
+
+```{r}
+#| echo: true
+# Load required libraries.
 library(dplyr)
 library(TOSTER)
 library(ggplot2)
 
-# Deal with density data seperately as very different structure
-# and needs several calculations
+```
+
+Read the recorded measurements and mass and calculate the density.
+The `density_spec` table is from the Dunlop specification sheets.
+
+```{r}
+#| echo: true
+# Deal with density data separately as very different structure
+# and needs several calculations to get the (approximate) density.
 
 liv_density <- readxl::read_xlsx(here::here("data", "density.xlsx"),
-                                 range = cell_cols("A:K"))
+                                 range = readxl::cell_cols("A:K"))
 # Specification from Dunlop, in kg/m3
 density_spec <- tibble::tribble(
   ~foam, ~min, ~max,
@@ -34,7 +59,11 @@ liv_density <- liv_density %>%
     hr_max = 1E6 * hr_max_mass / hr_vol
   )
 
+```
 
+Now load the test results
+
+```{r}
 # Read the testing results
 data_file <- here::here("data", "results.xlsx")
 
@@ -82,7 +111,9 @@ liv_summary <- liv_data %>%
   arrange(var, level, foam)
 
 print(liv_summary)
+```
 
+```{r}
 # Make some simple box plots to show the spread of the data
 plots <- list()
 for (var_name in unique(liv_data$var)) {
@@ -96,7 +127,22 @@ for (var_name in unique(liv_data$var)) {
     facet_wrap(~level)
 }
 print(plots)
+```
 
+The hysteresis data look odd, and it looks like one point is an outlier.
+Check which one by adding point labels to the plot
+
+```{r}
+# Add labels to the existing plot and redraw
+plots[["hysteresis"]] %+% 
+  geom_label(aes(label = cushion), 
+             hjust = "left", alpha = 0.5, position = "dodge")
+
+```
+
+
+
+```{r}
 # Notice an issue with one result - check if the density or mass is related
 density_plot <- liv_data %>%
   filter(var == "hysteresis", foam == "EN40-230") |>
@@ -104,18 +150,43 @@ density_plot <- liv_data %>%
   ggplot() +
   aes(x=hr_max, y = value, colour = level, label = cushion) +
   geom_point() +
-  geom_label(hjust = "left", alpha = 0.5, position = "dodge")
+  geom_label(hjust = "left", alpha = 0.5, position = "dodge") +
+  labs(title = "hysteresis vs density", 
+         y = "hysteresis", 
+         x = "max HR density")
 
 print(density_plot)
 
-liv_data %>% ungroup() %>% group_by(var, level) %>%
-  group_walk(\(group_data, keys) {
-    print(names(group_data));
-    print(names(keys));
-    TOSTER::dataTOSTtwo(group_data, deps = value, group = foam)
-    }
-    )
+```
 
+Comparing the two plots it looks like `W855791-02` is anomalous.
+Looking at the density & weight data, this cushion is much lighter than 
+any other cushion (about 65 to 90 grams lighter).
 
+```{r}
+liv_density %>% 
+  select(cushion, foam, mass, hr_min, hr_max) %>%
+  print()
 
+liv_density %>% 
+  ggplot() + aes(y = cushion, x = mass, colour = foam) + geom_point()
+```
 
+There may be a problem with this cushion, and it should be checked.
+
+If the density data are correct then the anomalous result is possibly due
+to the different density of this cushion.
+
+## TOST or equivalence testing
+
+Run a **T**wo **O**ne **S**ided **T**est on each comparison group 
+(i.e. compare foams for each measured variable and level)
+
+```{r}
+result_list <- liv_data %>% 
+  ungroup() %>% group_by(var, level) %>%
+  group_map(
+      ~ TOSTER::dataTOSTtwo(data = .x, deps = value, group = foam)
+    ) 
+print(result_list)
+```
