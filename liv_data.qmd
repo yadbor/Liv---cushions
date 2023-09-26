@@ -10,7 +10,7 @@ params:
 ## Exploratory analysis of Liv's data
 
 This report contains R code and output intermingled using Quarto, 
-based on the LIterate Programmign paradigm of Knuth.
+based on the Literate Programming paradigm of Knuth.
 
 The input to this code is a simplified version of Liv's .xlsx spreadsheets 
 with extraneous material removed to make them easier to parse.
