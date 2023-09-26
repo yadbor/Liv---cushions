@@ -1,6 +1,8 @@
 ---
 title: "liv_data"
 format: html
+params:
+  hide_answer: true
 ---
 
 ## Exploratory analysis of Liv's data
@@ -61,7 +63,8 @@ liv_density <- liv_density %>%
 
 ```
 
-Now load the test results
+Now load the test results, rearrange them for easier autmated processing and
+calculate some summary staistices.
 
 ```{r}
 # Read the testing results
@@ -129,6 +132,57 @@ for (var_name in unique(liv_data$var)) {
 print(plots)
 ```
 
+## TOST or equivalence testing
+
+Run a **T**wo **O**ne **S**ided **T**est on each comparison group 
+(i.e. compare foams for each measured variable and level)
+
+
+```{r}
+# Want to compare foams for each variable and level.
+# Regroup the data with the required groups them map a function to each group
+result_list <- liv_data %>% 
+  ungroup() %>% # remove the old groups first
+  group_by(var, level) %>% # then regroup
+  group_map( 
+    function(data = .x, group = foam, values = value) {
+      # t_TOST compares two vectors, create those from 
+      # the groups defined by the `group` column
+      bits <- split(data, ~ {{foam}}); 
+      # then extract the values to compare from the `values` column
+      x <- pull(bits[[1]], {{values}});
+      y <- pull(bits[[2]], {{values}});
+      # Set the size of the equivalence bounds at 10% of the combined mean 
+      mean_all = mean(c(x, y)) / 10;
+      # Then do a TOST using that bound size (half above and half below).
+      TOSTER::t_TOST(x, y, eqb = mean_all / 2) 
+    }
+  ) 
+```
+
+
+```{r}
+# Lots of fuss to get the group names back to name the result list
+keys <- liv_data %>% 
+    ungroup() %>% # remove the old groups first
+    group_by(var, level) %>% group_keys()
+result_names <- paste(keys$var, keys$level)
+
+names(result_list) <- result_names
+```
+
+
+```{r}
+# Turn output back on
+#| output: asis
+print(result_list)
+```
+
+
+`r if (params$hide_answer) "::: {.content-hidden}"`
+
+## Possible Outlier or Anomalous Result
+
 The hysteresis data look odd, and it looks like one point is an outlier.
 Check which one by adding point labels to the plot
 
@@ -174,51 +228,7 @@ liv_density %>%
 
 There may be a problem with this cushion, and it should be checked.
 
-If the density data are correct then the anomalous result is possibly due
+If the density data *are* correct then the anomalous result is possibly due
 to the different density of this cushion.
 
-## TOST or equivalence testing
-
-Run a **T**wo **O**ne **S**ided **T**est on each comparison group 
-(i.e. compare foams for each measured variable and level)
-
-Define a function to do a TOST test with bounds of about 10% of the group mean
-
-```{r}
-TOST_10 <- function(data, deps, group) {
-  # Set the size of the equivalence bounds at 10% of the combined mean 
-  # of all cushions in both groups.
-  eqbound_width = 0.1 * mean(pull(data, {{deps}}))
-  # Then do a TOST using that bound size (half above and half below).
-  TOSTER::dataTOSTtwo(data = data, deps = {{deps}}, group = {{group}},
-                            eqbound_type = "raw",
-                            low_eqbound = -eqbound_width / 2,
-                            high_eqbound = eqbound_width / 2)
-}
-```
-
-
-```{r}
-# Want to compare foams for each variable and level.
-# Regroup the data with the required groups them map a function to each group
-result_list <- liv_data %>% 
-  ungroup() %>% # remove the old groups first
-  group_by(var, level) %>% # then regroup
-  group_map( 
-    ~ TOST_10(data = .x, deps = value, group = foam) # bounds at 10% of mean
-    # SMD version, using Cohen's d for moderate effect size 
-    #   ~ TOSTER::dataTOSTtwo(data = .x, deps = value, group = foam,
-    #                         eqbound_type = "SMD",
-    #                         low_eqbound = -0.5,
-    #                         high_eqbound = 0.5)
-   ) 
-
-# Lots of fuss to get the group names back to name the result list
-result_names <- liv_data %>% 
-    ungroup() %>% # remove the old groups first
-    group_by(var, level) %>% group_keys() %>% pull(var,level)
-
-names(result_list) <- paste(result_names, names(result_names))
-
-print(result_list)
-```
+`r if (params$hide_answer) ":::"`
