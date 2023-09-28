@@ -110,9 +110,16 @@ CI = function(sd, percentile = 0.95) {
 
 # Show the Summary stats for each variable,including the 95% CI
 liv_summary <- liv_data %>%
-  summarise(avg = mean(value), sd = sd(value), n = n()) %>%
-  mutate(delta = CI(sd, 0.95), lo_95 = avg - delta, hi_95 = avg + delta) %>%
-  select(-delta) %>%
+  summarise(avg = mean(value), 
+            median = median(value), 
+            sd = sd(value), 
+            n = n()
+            ) %>%
+  mutate(delta = CI(sd, 0.95), 
+         lo_95 = avg - delta, 
+         hi_95 = avg + delta
+         ) %>%
+  select(-delta) %>% # remove the temporary column
   arrange(var, level, foam)
 
 print(liv_summary)
@@ -139,58 +146,50 @@ print(plots)
 Run a **T**wo **O**ne **S**ided **T**est on each comparison group 
 (i.e. compare foams for each measured variable and level)
 
-
 ```{r}
-# Want to compare foams for each variable and level.
+# Want to compare the different foams at each variable and level.
 # Regroup the data with the required groups them map a function to each group
-result_list <- liv_data %>% 
-  ungroup() %>% # remove the old groups first
-  group_by(var, level) %>% # then regroup
-  group_map( 
-    function(data = .x, group = foam, values = value) {
-      eqb = mean()
-      
-      # t_TOST compares two vectors, create those from 
-      # the groups defined by the `group` column
-      #df <- select(data, !!group, !!values)
-      bits <- split(data, ~ {{group}}) # this sprays Warnings
-      # then extract the values to compare from the `values` column
-      x <- pull(bits[[1]], {{values}});
-      y <- pull(bits[[2]], {{values}});
-      # Set the size of the equivalence bounds at 10% of the combined mean 
-      mean_all = mean(c(x, y)) / 10;
-      # Then do a TOST using that bound size (half above and half below).
-      TOSTER::t_TOST(x, y, eqb = mean_all / 2) 
-    }
-  ) 
-```
+# This is a cleaner & better way to do the analysis, passing a formula to
+# t_TOST, with data = .x, in the same way as is done with t.test()
 
+regrouped <- liv_data %>% 
+    ungroup() %>%        # remove the old groups first
+    group_by(var, level) # then regroup by var & level
 
-```{r}
-# Cleaner & better way to do the analysis, passing a formula to t_TOST,
-# with data = .x, in the same way as is done with t.test()
-result_list <- liv_data %>% 
-    ungroup() %>% # remove the old groups first
-    group_by(var, level) %>% # then regroup
-    group_map(~ TOSTER::t_TOST(value ~ foam, data = .x, 
+# Map the t_TOST function across each group
+result_list <- regrouped %>%
+    group_map(~ TOSTER::t_TOST(value ~ foam,   # compare value for each foam 
+                               data = .x,      # .x is data for this group
                                paired = FALSE, 
-                               eqb = mean(.x$value)/20) 
+                               eqb = mean(.x$value)/20 # +/- 5% of the mean
+                               )
               )
 
-# Lots of fuss to get the group names back to name the result list
-keys <- liv_data %>% 
-    ungroup() %>% # remove the old groups first
-    group_by(var, level) %>% group_keys()
-result_names <- paste(keys$var, keys$level)
+# Get the group names & use to name the result list
+names(result_list) <- regrouped %>%
+  group_keys() %>%                   # get the keys from the grouping
+  mutate(id = paste(var, level)) %>% # join the keys columns together
+  pull(id)                           # extract the result column on it's own
 
-names(result_list) <- result_names
 ```
 
 
 ```{r}
-# Turn output back on
-#| output: asis
-print(result_list)
+
+# OR 
+
+# Get the group names & use to name the result list
+result_names <- regrouped %>%
+  group_keys() %>%                   # get the keys from the grouping
+  mutate(id = paste(var, level)) %>% # join the keys columns together
+  pull(id)                           # extract the result column on it's own
+
+purrr::pwalk(list(result_names, result_list), 
+             function(group, content) {
+               cat("\n\n", strrep("=", 30),"\n", group, "\n"); 
+               print(content)
+               }
+             )
 ```
 
 
