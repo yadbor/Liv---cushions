@@ -4,7 +4,7 @@ format:
   html:
     self-contained: true
 params:
-  hide_answer: true
+  hide_answer: false
 ---
 
 ## Exploratory analysis of Liv's data
@@ -148,6 +148,8 @@ result_list <- liv_data %>%
   group_by(var, level) %>% # then regroup
   group_map( 
     function(data = .x, group = foam, values = value) {
+      eqb = mean()
+      
       # t_TOST compares two vectors, create those from 
       # the groups defined by the `group` column
       #df <- select(data, !!group, !!values)
@@ -165,6 +167,16 @@ result_list <- liv_data %>%
 
 
 ```{r}
+# Cleaner & better way to do the analysis, passing a formula to t_TOST,
+# with data = .x, in the same way as is done with t.test()
+result_list <- liv_data %>% 
+    ungroup() %>% # remove the old groups first
+    group_by(var, level) %>% # then regroup
+    group_map(~ TOSTER::t_TOST(value ~ foam, data = .x, 
+                               paired = FALSE, 
+                               eqb = mean(.x$value)/20) 
+              )
+
 # Lots of fuss to get the group names back to name the result list
 keys <- liv_data %>% 
     ungroup() %>% # remove the old groups first
