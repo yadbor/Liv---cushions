@@ -122,6 +122,14 @@ liv_summary <- liv_data %>%
   select(-delta) %>% # remove the temporary column
   arrange(var, level, foam)
 
+# another way to calculate to 95% CI
+  # mutate({
+  #   delta <- CI(sd, 0.95)
+  #   data.frame(lo_95 = avg - delta, hi_95 = avg + delta)
+  # })
+
+
+
 print(liv_summary)
 ```
 
