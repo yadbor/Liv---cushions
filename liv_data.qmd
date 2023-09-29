@@ -5,31 +5,38 @@ format:
     self-contained: true
 params:
   hide_answer: false
+  show_complete_TOST: false
 ---
 
 ## Exploratory analysis of Liv's data
 
-This report contains R code and output intermingled using Quarto, 
+This report contains R code and output intermingled using 
+[quarto](https://quarto.org), 
 based on the Literate Programming paradigm of Knuth.
 
-The input to this code is a simplified version of Liv's .xlsx spreadsheets 
+The input is a simplified version of Liv's .xlsx spreadsheets 
 with extraneous material removed to make them easier to parse.
 
 Load the necessary libraries and calculate the approximate density of each cushion.
-Note that this is a guess as there is VF and HR in each cushion, 
-but only one weight of the combined cushion.
+Note that this is a guess as each cushion is made of both VF and HR, 
+but we only have the weight of the combined cushion.
 
 ```{r}
 #| echo: true
+#| message: false
 # Load required libraries.
 library(dplyr)
 library(TOSTER)
 library(ggplot2)
 
+# Set some printing options
+options(digits = 3)        # Fewer significant figures because > 1µm is silly
+options(row.names = FALSE) # don't want row numbers in tables
 ```
 
-Read the recorded measurements and mass and calculate the density.
-The `density_spec` table is from the Dunlop specification sheets.
+Read the recorded cushion dimensions and masses and calculate the density.
+The `density_spec` table is from the Dunlop specification sheets and used to 
+estimate the possible weight of the VF overlay, assuming it is within spec.
 
 ```{r}
 #| echo: true
@@ -50,7 +57,7 @@ density_spec <- tibble::tribble(
 liv_density <- liv_density %>%
   mutate(t_mean = rowMeans(across(starts_with("T"))),
          vf_vol = length * width * vf_thickness,
-         sag_vol = (sag_height * sag_width * length), # cutout for seat sag
+         sag_vol = (sag_height * sag_width * length), # cut-out for seat sag
          hr_vol = length * width * t_mean - vf_vol - sag_vol
         ) %>%
 # The mass of VF is unknown, but can be estimated from the density_spec
@@ -65,8 +72,8 @@ liv_density <- liv_density %>%
 
 ```
 
-Now load the test results, rearrange them for easier autmated processing and
-calculate some summary staistices.
+Now load the test results, rearrange them for easier automated processing and
+calculate some summary statistics.
 
 ```{r}
 # Read the testing results
@@ -101,36 +108,35 @@ liv_data <- sheet_names %>%                  # Take the named sheets
 # level = load level for measurement
 # value = measurement
 
-# Define a function to calculate the span of the given percentile
-# percentile defaults to 95% (0.95)
-CI = function(sd, percentile = 0.95) {
-  interval = (percentile + 1)/2
-  qnorm(p = interval, mean = 0, sd = sd)
-}
+
+# Define a function to calculate the summary stats for each group.
+# Return a data.frame to return multiple columns in one call.
+# Original version used qnorm(), which gives the wrong numbers for small N
+# and assumes is normal. Using qt() is more robust & accurate.
+stats <- function(x, ci = 0.95) {
+        mu <- mean(x)
+        m <- median(x)
+        sd <- sd(x)
+        n <- length(x)
+        se <- sd / sqrt(n)
+        err <- qt((ci + 1)/2, df = n-1) * se
+        
+        data.frame(mean = mu, 
+               median = m, 
+               sd = sd, 
+               se = se,
+               n = n,
+               upper = mu + err, 
+               lower = mu - err
+               )
+    }
 
 # Show the Summary stats for each variable,including the 95% CI
-liv_summary <- liv_data %>%
-  summarise(avg = mean(value), 
-            median = median(value), 
-            sd = sd(value), 
-            n = n()
-            ) %>%
-  mutate(delta = CI(sd, 0.95), 
-         lo_95 = avg - delta, 
-         hi_95 = avg + delta
-         ) %>%
-  select(-delta) %>% # remove the temporary column
-  arrange(var, level, foam)
+data_summary <- liv_data %>%
+  summarise(stats(value, ci = 0.95)) %>%
+  arrange(var, level, foam) # Re-order the output to be more readable
 
-# another way to calculate to 95% CI
-  # mutate({
-  #   delta <- CI(sd, 0.95)
-  #   data.frame(lo_95 = avg - delta, hi_95 = avg + delta)
-  # })
-
-
-
-print(liv_summary)
+print(data_summary)
 ```
 
 ```{r}
@@ -159,6 +165,7 @@ Run a **T**wo **O**ne **S**ided **T**est on each comparison group
 # Regroup the data with the required groups them map a function to each group
 # This is a cleaner & better way to do the analysis, passing a formula to
 # t_TOST, with data = .x, in the same way as is done with t.test()
+# Previous code appears to have some bug, but was too hard to find in that mess.
 
 regrouped <- liv_data %>% 
     ungroup() %>%        # remove the old groups first
@@ -183,8 +190,29 @@ names(result_list) <- regrouped %>%
 
 
 ```{r}
+# This code has been cleaned up as well, using purrr::pwalk and just putting 
+# the names in a second parallel list.
+# Also made the headings between each test stand out a bit more 
 
-# OR 
+# Define a function to print each results a bit nicer
+# Prints some blank lines, the group name, padded to w characters with '='
+# then the actual results
+print_group <- function(group, content) {
+  w <- 30
+  separator <- strrep("=", w)
+  wide_name <- stringr::str_pad(paste0(group, " "), # add a trailing space
+                                width = w,
+                                side = "right",
+                                pad = "=")          # pad out to w chars wide
+  # Use cat() for the header to get control over new lines etc.
+  cat("\n\n",         
+      separator, "\n",
+      wide_name, "\n",
+      separator, "\n"
+      )
+  # cat() can't handle complex objects, so use print()
+  print(content)
+}
 
 # Get the group names & use to name the result list
 result_names <- regrouped %>%
@@ -192,12 +220,23 @@ result_names <- regrouped %>%
   mutate(id = paste(var, level)) %>% # join the keys columns together
   pull(id)                           # extract the result column on it's own
 
-purrr::pwalk(list(result_names, result_list), 
-             function(group, content) {
-               cat("\n\n", strrep("=", 30),"\n", group, "\n"); 
-               print(content)
-               }
-             )
+# Summary results
+result_summary <- purrr::map(result_list, \(x) c(x$TOST$p.value)) %>% 
+  bind_rows() %>% 
+  t() %>% 
+  as.data.frame() %>%  
+  setNames(c("t.test", "eq_lower", "eq_upper")) %>% 
+  tibble::rownames_to_column("experiment") %>% 
+  tidyr::separate(col = experiment, into = c("variable", "level")) %>%
+  mutate(different = ifelse(t.test < 0.05, "SIG", ""), 
+         equivalent = ifelse((eq_lower < 0.05) & (eq_upper < 0.05), "SIG", ""))
+
+print(result_summary)
+
+if (params$show_complete_TOST) {
+  # Print complete results
+  purrr::pwalk(list(result_names, result_list), print_group)
+}
 ```
 
 
